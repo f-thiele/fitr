@@ -88,16 +88,17 @@ struct SigApp {
 
 impl SigApp {
     fn new() -> SigApp {
-        let gpx = GPX_Data::new("tests/fixtures/example.gpx".to_string());
+        let mut gpx = GPX_Data::new("tests/fixtures/example.gpx".to_string());
 
-        let elev = gpxalyzer::get_elevation(&gpx.segment);
+        gpxalyzer::decorate_speed(&mut gpx.segment);
+        let yquant = gpxalyzer::get_speed(&gpx.segment);
         let time = gpxalyzer::get_time(&gpx.segment);
         let mut data1 = std::vec::Vec::new();
         let mut y_min: f64 = 0.;
         let mut y_max: f64 = 0.;
         let starttime = time[0].time();
 
-        for (y, x) in izip!(&elev, &time) {
+        for (y, x) in izip!(&yquant, &time) {
             let duration = x.time().signed_duration_since(starttime);
             data1.push((duration.num_seconds() as f64, *y));
 
@@ -253,7 +254,7 @@ fn run_prog() -> Result<(), failure::Error> {
                 )
                 .y_axis(
                     Axis::default()
-                        .title("Elevation [m]")
+                        .title("Speed [m/s]")
                         .style(Style::default().fg(Color::Gray))
                         .labels_style(Style::default().modifier(Modifier::Italic))
                         .bounds(sigapp.y_range)
