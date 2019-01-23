@@ -29,8 +29,6 @@ use tui::widgets::canvas::{Canvas, Line};
 use tui::widgets::{Axis, Block, Borders, Chart, Dataset, Marker, Widget};
 use tui::Terminal;
 
-use chrono::{DateTime, Utc};
-
 mod util;
 
 extern crate gpx;
@@ -42,47 +40,42 @@ use itertools::izip;
 
 use gpx::read;
 use gpx::{Gpx, Track, TrackSegment};
+use geo_types::Point;
 
 #[macro_use] extern crate log;
 use simplelog::*;
 
-fn gpx_stuff() -> (std::vec::Vec<f64>, std::vec::Vec<DateTime<Utc>>) {
-    // This XML file actually exists — try it for yourself!
-    let file = File::open("tests/fixtures/example.gpx").unwrap();
-    let reader = BufReader::new(file);
 
-    // read takes any io::Read and gives a Result<Gpx, Error>.
-    let gpx: Gpx = read(reader).unwrap();
-
-    // Each GPX file has multiple "tracks", this takes the first one.
-    let track: &Track = &gpx.tracks[0];
-    // assert_eq!(track.name, Some(String::from("Example GPX Document")));
-
-    // Each track will have different segments full of waypoints, where a
-    // waypoint contains info like latitude, longitude, and elevation.
-    let segment: &TrackSegment = &track.segments[0];
-
-    return (gpxalyzer::get_elevation(segment), gpxalyzer::get_time(segment));
+struct GPX_Data {
+    filename: String,
+    gpx: Gpx,
+    track: Track,
+    segment: TrackSegment,
 }
 
+impl GPX_Data {
+    fn new(filename: String) -> GPX_Data {
+        let file = File::open(filename.as_str()).unwrap();
+        let reader = BufReader::new(file);
 
-fn get_2d_data() -> (std::vec::Vec<f64>, std::vec::Vec<f64>) {
-    // This XML file actually exists — try it for yourself!
-    let file = File::open("tests/fixtures/example.gpx").unwrap();
-    let reader = BufReader::new(file);
+        // read takes any io::Read and gives a Result<Gpx, Error>.
+        let gpx: Gpx = read(reader).unwrap();
 
-    // read takes any io::Read and gives a Result<Gpx, Error>.
-    let gpx: Gpx = read(reader).unwrap();
+        // Each GPX file has multiple "tracks", this takes the first one.
+        let track: Track = gpx.tracks[0].clone();
+        // assert_eq!(track.name, Some(String::from("Example GPX Document")));
 
-    // Each GPX file has multiple "tracks", this takes the first one.
-    let track: &Track = &gpx.tracks[0];
-    // assert_eq!(track.name, Some(String::from("Example GPX Document")));
+        // Each track will have different segments full of waypoints, where a
+        // waypoint contains info like latitude, longitude, and elevation.
+        let segment: TrackSegment = track.segments[0].clone();
 
-    // Each track will have different segments full of waypoints, where a
-    // waypoint contains info like latitude, longitude, and elevation.
-    let segment: &TrackSegment = &track.segments[0];
-
-    return (gpxalyzer::get_lattitude(segment), gpxalyzer::get_longitude(segment));
+        GPX_Data {
+            filename,
+            gpx,
+            track: track,
+            segment: segment,
+        }
+    }
 }
 
 
@@ -95,9 +88,11 @@ struct SigApp {
 
 impl SigApp {
     fn new() -> SigApp {
-        let (elev, time) = gpx_stuff();
+        let gpx = GPX_Data::new("tests/fixtures/example.gpx".to_string());
+
+        let elev = gpxalyzer::get_elevation(&gpx.segment);
+        let time = gpxalyzer::get_time(&gpx.segment);
         let mut data1 = std::vec::Vec::new();
-        let mut count: f64 = 0.;
         let mut y_min: f64 = 0.;
         let mut y_max: f64 = 0.;
         let starttime = time[0].time();
@@ -132,32 +127,20 @@ impl SigApp {
 
 struct App {
     size: Rect,
-    data: std::vec::Vec<(f64, f64)>,
+    data: std::vec::Vec<Point<f64>>,
     playground: [f64; 4],
 }
 
 impl App {
     fn new() -> App {
-        let (lat, lng) = get_2d_data();
-        let mut x_range: [f64; 2] = [lat[0], lat[0]];
-        let mut y_range: [f64; 2] = [lng[0], lng[0]];
-        let mut data1 = std::vec::Vec::new();
-
-        for (x, y) in izip!(&lat, &lng) {
-            if x < &x_range[0] {
-                x_range[0] = *x;
-            } else if x > &x_range[1] {
-                x_range[1] = *x;
-            }
-
-            if y < &y_range[0] {
-                y_range[0] = *y;
-            } else if y > &y_range[1] {
-                y_range[1] = *y;
-            }
-            data1.push((*x,*y));
+        let gpx = GPX_Data::new("tests/fixtures/example.gpx".to_string());
+        let mut points: std::vec::Vec<Point<f64>> = std::vec::Vec::new();
+        for p in &gpx.segment.points {
+            points.push(p.point());
         }
+        let mut x_range: [f64; 2] = gpxalyzer::get_range_lattitude(&gpx.segment);
         info!("x-range {} to {}", x_range[0], x_range[1]);
+        let mut y_range: [f64; 2] = gpxalyzer::get_range_longitude(&gpx.segment);
         info!("y-range {} to {}", y_range[0], y_range[1]);
 
         // multiply with safety margin of 0.25 distance
@@ -172,7 +155,7 @@ impl App {
 
         App {
             size: Default::default(),
-            data: data1,
+            data: points,
             playground: [x_range[0], y_range[0], x_range[1], y_range[1]],
         }
     }
@@ -238,10 +221,10 @@ fn run_prog() -> Result<(), failure::Error> {
                 .paint(|ctx| {
                     for i in 0..(app.data.len()-2) {
                       ctx.draw(&Line {
-                          x1: f64::from(app.data[i].0),
-                          y1: f64::from(app.data[i].1),
-                          x2: f64::from(app.data[i+1].0),
-                          y2: f64::from(app.data[i+1].1),
+                          x1: f64::from(app.data[i].lat()),
+                          y1: f64::from(app.data[i].lng()),
+                          x2: f64::from(app.data[i+1].lat()),
+                          y2: f64::from(app.data[i+1].lng()),
                           color: Color::Yellow,
                       });
                     }
