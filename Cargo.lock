@@ -138,6 +138,7 @@ dependencies = [
 name = "gpxalyzer"
 version = "0.1.0"
 dependencies = [
+ "chrono 0.4.6 (registry+https://github.com/rust-lang/crates.io-index)",
  "gpx 0.6.0 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 

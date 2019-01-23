@@ -62,20 +62,30 @@ fn gpx_stuff() -> (std::vec::Vec<f64>, std::vec::Vec<DateTime<Utc>>) {
     // waypoint contains info like latitude, longitude, and elevation.
     let segment: &TrackSegment = &track.segments[0];
 
-    // This is an example of retrieving the elevation (in meters) at certain points.
-
-    gpxalyzer::decorate_speed(segment).unwrap();
-
-    let mut elev = std::vec::Vec::new();
-    let mut time = std::vec::Vec::new();
-
-    for n in &segment.points {
-        elev.push(n.elevation.unwrap());
-        time.push(n.time.unwrap());
-    }
-
-    return (elev, time);
+    return (gpxalyzer::get_elevation(segment), gpxalyzer::get_time(segment));
 }
+
+
+fn get_2d_data() -> (std::vec::Vec<f64>, std::vec::Vec<f64>) {
+    // This XML file actually exists — try it for yourself!
+    let file = File::open("tests/fixtures/example.gpx").unwrap();
+    let reader = BufReader::new(file);
+
+    // read takes any io::Read and gives a Result<Gpx, Error>.
+    let gpx: Gpx = read(reader).unwrap();
+
+    // Each GPX file has multiple "tracks", this takes the first one.
+    let track: &Track = &gpx.tracks[0];
+    // assert_eq!(track.name, Some(String::from("Example GPX Document")));
+
+    // Each track will have different segments full of waypoints, where a
+    // waypoint contains info like latitude, longitude, and elevation.
+    let segment: &TrackSegment = &track.segments[0];
+
+    return (gpxalyzer::get_lattitude(segment), gpxalyzer::get_longitude(segment));
+}
+
+
 struct SigApp {
     data1: Vec<(f64, f64)>,
     data2: Vec<(f64, f64)>,
@@ -106,8 +116,6 @@ impl SigApp {
         let data2 = data1.clone();
 
         let last_point = time[time.len()-1].time().signed_duration_since(starttime).num_seconds() as f64;
-        info!("This only appears in the log file: {:}", last_point);
-
 
         SigApp {
             data1,
@@ -118,41 +126,59 @@ impl SigApp {
     }
 
     fn update(&mut self) {
+        // leave this in for later scroling and updating
     }
 }
 
 struct App {
     size: Rect,
-    x: f64,
-    y: f64,
-    ball: Rect,
-    playground: Rect,
-    dir_x: bool,
-    dir_y: bool,
+    data: std::vec::Vec<(f64, f64)>,
+    playground: [f64; 4],
 }
 
 impl App {
     fn new() -> App {
+        let (lat, lng) = get_2d_data();
+        let mut x_range: [f64; 2] = [lat[0], lat[0]];
+        let mut y_range: [f64; 2] = [lng[0], lng[0]];
+        let mut data1 = std::vec::Vec::new();
+
+        for (x, y) in izip!(&lat, &lng) {
+            if x < &x_range[0] {
+                x_range[0] = *x;
+            } else if x > &x_range[1] {
+                x_range[1] = *x;
+            }
+
+            if y < &y_range[0] {
+                y_range[0] = *y;
+            } else if y > &y_range[1] {
+                y_range[1] = *y;
+            }
+            data1.push((*x,*y));
+        }
+        info!("x-range {} to {}", x_range[0], x_range[1]);
+        info!("y-range {} to {}", y_range[0], y_range[1]);
+
+        // multiply with safety margin of 0.25 distance
+        let margin_factor = 0.25;
+        let x_dist = x_range[1]-x_range[0];
+        let y_dist = y_range[1]-y_range[0];
+
+        x_range[0] -= x_dist*margin_factor;
+        x_range[1] += x_dist*margin_factor;
+        y_range[0] -= y_dist*margin_factor;
+        y_range[1] += y_dist*margin_factor;
+
         App {
             size: Default::default(),
-            x: 0.0,
-            y: 0.0,
-            ball: Rect::new(10, 30, 10, 10),
-            playground: Rect::new(10, 10, 100, 100),
-            dir_x: true,
-            dir_y: true,
+            data: data1,
+            playground: [x_range[0], y_range[0], x_range[1], y_range[1]],
         }
     }
 
     fn update(&mut self) {
-        if self.ball.left() < self.playground.left() || self.ball.right() > self.playground.right()
-        {
-            self.dir_x = !self.dir_x;
-        }
-        if self.ball.top() < self.playground.top() || self.ball.bottom() > self.playground.bottom()
-        {
-            self.dir_y = !self.dir_y;
-        }
+        // leave this in for later scroling and updating
     }
 }
 
@@ -193,8 +219,7 @@ fn run_prog() -> Result<(), failure::Error> {
     // App
     let mut app = App::new();
     // App
-    let mut sigapp = SigApp::new();
-
+    let sigapp = SigApp::new();
 
     loop {
         let size = terminal.size()?;
@@ -209,17 +234,19 @@ fn run_prog() -> Result<(), failure::Error> {
                 .constraints([Constraint::Percentage(50), Constraint::Percentage(50)].as_ref())
                 .split(app.size);
             Canvas::default()
-                .block(Block::default().borders(Borders::ALL).title("Pong"))
+                .block(Block::default().borders(Borders::ALL).title("Route"))
                 .paint(|ctx| {
-                    ctx.draw(&Line {
-                        x1: f64::from(app.ball.left()),
-                        y1: f64::from(app.ball.top()),
-                        x2: f64::from(app.ball.right()),
-                        y2: f64::from(app.ball.top()),
-                        color: Color::Yellow,
-                    });
-                }).x_bounds([10.0, 110.0])
-                .y_bounds([10.0, 110.0])
+                    for i in 0..(app.data.len()-2) {
+                      ctx.draw(&Line {
+                          x1: f64::from(app.data[i].0),
+                          y1: f64::from(app.data[i].1),
+                          x2: f64::from(app.data[i+1].0),
+                          y2: f64::from(app.data[i+1].1),
+                          color: Color::Yellow,
+                      });
+                    }
+                }).x_bounds([app.playground[0], app.playground[2]])
+                .y_bounds([app.playground[1], app.playground[3]])
                 .render(&mut f, chunks[0]);
 
             Chart::default()
@@ -275,16 +302,16 @@ fn run_prog() -> Result<(), failure::Error> {
                     break;
                 }
                 Key::Down => {
-                    app.y += 1.0;
+                    //app.y += 1.0;
                 }
                 Key::Up => {
-                    app.y -= 1.0;
+                    //app.y -= 1.0;
                 }
                 Key::Right => {
-                    app.x += 1.0;
+                    //app.x += 1.0;
                 }
                 Key::Left => {
-                    app.x -= 1.0;
+                    //app.x -= 1.0;
                 }
 
                 _ => {}
