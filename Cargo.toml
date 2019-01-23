@@ -1,0 +1,19 @@
+[package]
+name = "fitr"
+version = "0.1.0"
+authors = ["Fabian Thiele <fabian.thiele@posteo.de>"]
+edition = "2018"
+
+[dependencies]
+gpx = "0.6"
+gpxalyzer = {path = "../gpxalyzer"}
+tui = "0.3.0"
+termion = "1.5"
+failure = "0.1"
+chrono = "0.4.6"
+itertools = "0.8"
+simplelog = "0.5.3"
+log = "0.4.6"
+
+[dev-dependencies]
+stderrlog = "0.4"
