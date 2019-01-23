@@ -1,6 +1,8 @@
 fitr
 ============
 
+![fitr output](/assets/demo.jpg)
+
 fitr is a GPX track analysis program with a command line interface written in rust.
 
 ## Work in progress
