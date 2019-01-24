@@ -16,6 +16,7 @@
 //  You should have received a copy of the GNU General Public License
 //  along with this program.  If not, see <https://www.gnu.org/licenses/>.
 use std::io;
+use std::env;
 use std::time::Duration;
 
 use termion::event::Key;
@@ -87,8 +88,8 @@ struct SigApp {
 }
 
 impl SigApp {
-    fn new() -> SigApp {
-        let mut gpx = GPX_Data::new("tests/fixtures/example.gpx".to_string());
+    fn new(filename: String) -> SigApp {
+        let mut gpx = GPX_Data::new(filename);
 
         gpxalyzer::decorate_speed(&mut gpx.segment);
         let yquant = gpxalyzer::get_speed(&gpx.segment);
@@ -133,8 +134,8 @@ struct App {
 }
 
 impl App {
-    fn new() -> App {
-        let gpx = GPX_Data::new("tests/fixtures/example.gpx".to_string());
+    fn new(filename: String) -> App {
+        let gpx = GPX_Data::new(filename);
         let mut points: std::vec::Vec<Point<f64>> = std::vec::Vec::new();
         for p in &gpx.segment.points {
             points.push(p.point());
@@ -174,7 +175,16 @@ fn main() {
         ]
     ).unwrap();
 
-    ::std::process::exit(match run_prog() {
+    let args: Vec<String> = env::args().collect();
+
+    if args.len() <= 1 {
+        error!("No filename provided please specify .gpx file to load");
+        std::process::exit(1);
+    }
+
+    let filename = &args[1];
+
+    ::std::process::exit(match run_prog(filename.to_string()) {
         Ok(_) => 0,
         Err(err) => {
             error!("error: {:?}", err);
@@ -184,7 +194,7 @@ fn main() {
 }
 
 
-fn run_prog() -> Result<(), failure::Error> {
+fn run_prog(filename: String) -> Result<(), failure::Error> {
     // Terminal initialization
     let stdout = io::stdout().into_raw_mode()?;
     let stdout = MouseTerminal::from(stdout);
@@ -201,9 +211,9 @@ fn run_prog() -> Result<(), failure::Error> {
     let events = util::Events::with_config(config);
 
     // App
-    let mut app = App::new();
+    let mut app = App::new(filename.to_string());
     // App
-    let sigapp = SigApp::new();
+    let sigapp = SigApp::new(filename.to_string());
 
     loop {
         let size = terminal.size()?;
