@@ -200,8 +200,8 @@ impl RouteApp {
 
         // adjust top and bottom limit uniformly by scrolled steps and
         // defined distance increase
-        self.draw_area[2] += y_visible_d*self.mv_left_d*self.mv_left as f64;
-        self.draw_area[0] += y_visible_d*self.mv_left_d*self.mv_left as f64;
+        self.draw_area[2] += x_visible_d*self.mv_left_d*self.mv_left as f64;
+        self.draw_area[0] += x_visible_d*self.mv_left_d*self.mv_left as f64;
 
         // reset up/down movement counter
         self.mv_left = 0;
