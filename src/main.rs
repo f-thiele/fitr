@@ -48,15 +48,15 @@ mod util;
 extern crate gpx;
 extern crate gpxalyzer;
 
-struct GPX_Data {
+struct GpxData {
     filename: String,
     gpx: Gpx,
     track: Track,
     segment: TrackSegment,
 }
 
-impl GPX_Data {
-    fn new(filename: String) -> Result<GPX_Data, Box<Error>> {
+impl GpxData {
+    fn new(filename: String) -> Result<GpxData, Box<Error>> {
         let file = File::open(filename.as_str())?;
         let reader = BufReader::new(file);
 
@@ -70,11 +70,11 @@ impl GPX_Data {
         // waypoint contains info like latitude, longitude, and elevation.
         let segment: TrackSegment = track.segments[0].clone();
 
-        Ok(GPX_Data {
+        Ok(GpxData {
             filename,
             gpx,
-            track: track,
-            segment: segment,
+            track,
+            segment,
         })
     }
 }
@@ -89,9 +89,9 @@ struct DiagramApp {
 
 impl DiagramApp {
     fn new(filename: String) -> Result<DiagramApp, Box<Error>> {
-        let mut gpx = GPX_Data::new(filename)?;
+        let mut gpx = GpxData::new(filename)?;
 
-        gpxalyzer::decorate_speed(&mut gpx.segment);
+        gpxalyzer::decorate_speed(&mut gpx.segment)?;
         let yquant = gpxalyzer::get_speed(&gpx.segment);
         let time = gpxalyzer::get_time(&gpx.segment);
         let mut data1 = std::vec::Vec::new();
@@ -139,7 +139,7 @@ struct RouteApp {
 
 impl RouteApp {
     fn new(filename: String) -> Result<RouteApp, Box<Error>> {
-        let gpx = GPX_Data::new(filename)?;
+        let gpx = GpxData::new(filename)?;
         let mut points: std::vec::Vec<Point<f64>> = std::vec::Vec::new();
         for p in &gpx.segment.points {
             points.push(p.point());
@@ -208,7 +208,7 @@ impl RouteApp {
     }
 }
 
-fn print_usage(program: &str, opts: Options) {
+fn print_usage(program: &str, opts: &Options) {
     println!("{}", opts.usage(&format!("Usage: {} <gpx-data-path>", program)));
 }
 
@@ -235,7 +235,7 @@ fn main() {
     };
 
     if matches.opt_present("h") {
-        print_usage(&program, opts);
+        print_usage(&program, &opts);
         return;
     }
 
@@ -244,7 +244,7 @@ fn main() {
         &matches.free[0]
     } else {
         // otherwise show help information
-        print_usage(&program, opts);
+        print_usage(&program, &opts);
         std::process::exit(1);
     };
 
@@ -305,10 +305,10 @@ fn run_prog(filename: String) -> Result<(), Box<Error>> {
                     // until we reach the last one
                     for i in 0..(route_app.data.len()-2) {
                       ctx.draw(&Line {
-                          x1: f64::from(route_app.data[i].lat()),
-                          y1: f64::from(route_app.data[i].lng()),
-                          x2: f64::from(route_app.data[i+1].lat()),
-                          y2: f64::from(route_app.data[i+1].lng()),
+                          x1: route_app.data[i].lat(),
+                          y1: route_app.data[i].lng(),
+                          x2: route_app.data[i+1].lat(),
+                          y2: route_app.data[i+1].lng(),
                           color: Color::Yellow,
                       });
                     }
