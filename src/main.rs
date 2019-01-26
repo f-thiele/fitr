@@ -15,7 +15,8 @@
 //
 //  You should have received a copy of the GNU General Public License
 //  along with this program.  If not, see <https://www.gnu.org/licenses/>.
-use std::io;
+use std::io::BufReader;
+use std::fs::File;
 use std::env;
 use std::time::Duration;
 
@@ -30,13 +31,6 @@ use tui::widgets::canvas::{Canvas, Line};
 use tui::widgets::{Axis, Block, Borders, Chart, Dataset, Marker, Widget};
 use tui::Terminal;
 
-mod util;
-
-extern crate gpx;
-extern crate gpxalyzer;
-
-use std::io::BufReader;
-use std::fs::File;
 use itertools::izip;
 
 use gpx::read;
@@ -44,8 +38,12 @@ use gpx::{Gpx, Track, TrackSegment};
 use geo_types::Point;
 
 #[macro_use] extern crate log;
-use simplelog::*;
+use simplelog::{LevelFilter, CombinedLogger, TermLogger, WriteLogger};
 
+mod util;
+
+extern crate gpx;
+extern crate gpxalyzer;
 
 struct GPX_Data {
     filename: String,
@@ -62,9 +60,8 @@ impl GPX_Data {
         // read takes any io::Read and gives a Result<Gpx, Error>.
         let gpx: Gpx = read(reader).unwrap();
 
-        // Each GPX file has multiple "tracks", this takes the first one.
+        // for first demo use only the first track found
         let track: Track = gpx.tracks[0].clone();
-        // assert_eq!(track.name, Some(String::from("Example GPX Document")));
 
         // Each track will have different segments full of waypoints, where a
         // waypoint contains info like latitude, longitude, and elevation.
@@ -80,15 +77,15 @@ impl GPX_Data {
 }
 
 
-struct SigApp {
+struct DiagramApp {
     data1: Vec<(f64, f64)>,
     data2: Vec<(f64, f64)>,
     y_range: [f64; 2],
     window: [f64; 2],
 }
 
-impl SigApp {
-    fn new(filename: String) -> SigApp {
+impl DiagramApp {
+    fn new(filename: String) -> DiagramApp {
         let mut gpx = GPX_Data::new(filename);
 
         gpxalyzer::decorate_speed(&mut gpx.segment);
@@ -114,7 +111,7 @@ impl SigApp {
 
         let last_point = time[time.len()-1].time().signed_duration_since(starttime).num_seconds() as f64;
 
-        SigApp {
+        DiagramApp {
             data1,
             data2,
             y_range: [0.8*y_min, 1.2*y_max],
@@ -127,14 +124,14 @@ impl SigApp {
     }
 }
 
-struct App {
+struct RouteApp {
     size: Rect,
     data: std::vec::Vec<Point<f64>>,
-    playground: [f64; 4],
+    draw_area: [f64; 4],
 }
 
-impl App {
-    fn new(filename: String) -> App {
+impl RouteApp {
+    fn new(filename: String) -> RouteApp {
         let gpx = GPX_Data::new(filename);
         let mut points: std::vec::Vec<Point<f64>> = std::vec::Vec::new();
         for p in &gpx.segment.points {
@@ -155,10 +152,10 @@ impl App {
         y_range[0] -= y_dist*margin_factor;
         y_range[1] += y_dist*margin_factor;
 
-        App {
+        RouteApp {
             size: Default::default(),
             data: points,
-            playground: [x_range[0], y_range[0], x_range[1], y_range[1]],
+            draw_area: [x_range[0], y_range[0], x_range[1], y_range[1]],
         }
     }
 
@@ -168,6 +165,7 @@ impl App {
 }
 
 fn main() {
+    // log to terminal and file
     CombinedLogger::init(
         vec![
             TermLogger::new(LevelFilter::Warn, simplelog::Config::default()).unwrap(),
@@ -175,8 +173,11 @@ fn main() {
         ]
     ).unwrap();
 
+    // obtain arguments for running the program
     let args: Vec<String> = env::args().collect();
 
+    // the first (and only) argument is the GPX file to load, check if
+    // we received an argument
     if args.len() <= 1 {
         error!("No filename provided please specify .gpx file to load");
         std::process::exit(1);
@@ -184,6 +185,8 @@ fn main() {
 
     let filename = &args[1];
 
+    // return standard POSIX exit codes depending on how the run_prog routine
+    // terminates
     ::std::process::exit(match run_prog(filename.to_string()) {
         Ok(_) => 0,
         Err(err) => {
@@ -196,7 +199,7 @@ fn main() {
 
 fn run_prog(filename: String) -> Result<(), failure::Error> {
     // Terminal initialization
-    let stdout = io::stdout().into_raw_mode()?;
+    let stdout = std::io::stdout().into_raw_mode()?;
     let stdout = MouseTerminal::from(stdout);
     let stdout = AlternateScreen::from(stdout);
     let backend = TermionBackend::new(stdout);
@@ -210,68 +213,76 @@ fn run_prog(filename: String) -> Result<(), failure::Error> {
     };
     let events = util::Events::with_config(config);
 
-    // App
-    let mut app = App::new(filename.to_string());
-    // App
-    let sigapp = SigApp::new(filename.to_string());
+    // 2D route app (scrollable and hence mutable)
+    let mut route_app = RouteApp::new(filename.to_string());
+    // diagram app of variable to show along time
+    let diag_app = DiagramApp::new(filename.to_string());
 
+    // main loop for showing TUI
     loop {
         let size = terminal.size()?;
-        if size != app.size {
+        if size != route_app.size {
             terminal.resize(size)?;
-            app.size = size;
+            route_app.size = size;
         }
 
         terminal.draw(|mut f| {
+            // split layout into two vertical parts of 50% each
             let chunks = Layout::default()
                 .direction(Direction::Vertical)
                 .constraints([Constraint::Percentage(50), Constraint::Percentage(50)].as_ref())
-                .split(app.size);
+                .split(route_app.size);
+
+            // draw in the top part of the layout (chunks[0]) a tui widget canvas
             Canvas::default()
                 .block(Block::default().borders(Borders::ALL).title("Route"))
                 .paint(|ctx| {
-                    for i in 0..(app.data.len()-2) {
+
+                    // iterate now over all datapoints and draw a line from i to i+1
+                    // until we reach the last one
+                    for i in 0..(route_app.data.len()-2) {
                       ctx.draw(&Line {
-                          x1: f64::from(app.data[i].lat()),
-                          y1: f64::from(app.data[i].lng()),
-                          x2: f64::from(app.data[i+1].lat()),
-                          y2: f64::from(app.data[i+1].lng()),
+                          x1: f64::from(route_app.data[i].lat()),
+                          y1: f64::from(route_app.data[i].lng()),
+                          x2: f64::from(route_app.data[i+1].lat()),
+                          y2: f64::from(route_app.data[i+1].lng()),
                           color: Color::Yellow,
                       });
                     }
-                }).x_bounds([app.playground[0], app.playground[2]])
-                .y_bounds([app.playground[1], app.playground[3]])
+                }).x_bounds([route_app.draw_area[0], route_app.draw_area[2]])
+                .y_bounds([route_app.draw_area[1], route_app.draw_area[3]])
                 .render(&mut f, chunks[0]);
 
+            // draw a tui widget chart in the bottom part of the layout (chunks[1])
             Chart::default()
-                .block(
+                .block( //style and widget title
                     Block::default()
                         .title("Chart")
                         .title_style(Style::default().fg(Color::Cyan).modifier(Modifier::Bold))
                         .borders(Borders::ALL),
                 )
-                .x_axis(
+                .x_axis( // x-axis label and dimension (we resize for now by factor of 60. for unit conversion to minutes)
                     Axis::default()
                         .title("Time [min]")
                         .style(Style::default().fg(Color::Gray))
                         .labels_style(Style::default().modifier(Modifier::Italic))
-                        .bounds(sigapp.window)
+                        .bounds(diag_app.window)
                         .labels(&[
-                            &format!("{}", sigapp.window[0] / 60.),
-                            &format!("{}", (sigapp.window[0] + sigapp.window[1]) / 2.0 / 60.),
-                            &format!("{}", sigapp.window[1] / 60.),
+                            &format!("{}", diag_app.window[0] / 60.),
+                            &format!("{}", (diag_app.window[0] + diag_app.window[1]) / 2.0 / 60.),
+                            &format!("{}", diag_app.window[1] / 60.),
                         ]),
                 )
-                .y_axis(
+                .y_axis( // y-axis label and ticks
                     Axis::default()
                         .title("Speed [m/s]")
                         .style(Style::default().fg(Color::Gray))
                         .labels_style(Style::default().modifier(Modifier::Italic))
-                        .bounds(sigapp.y_range)
+                        .bounds(diag_app.y_range)
                         .labels(&[
-                            &format!("{:.2}", sigapp.y_range[0]),
-                            &format!("{:.2}", (sigapp.y_range[0] + sigapp.y_range[1]) / 2.0),
-                            &format!("{:.2}", sigapp.y_range[1]),
+                            &format!("{:.2}", diag_app.y_range[0]),
+                            &format!("{:.2}", (diag_app.y_range[0] + diag_app.y_range[1]) / 2.0),
+                            &format!("{:.2}", diag_app.y_range[1]),
                         ]),
 
                 )
@@ -280,38 +291,34 @@ fn run_prog(filename: String) -> Result<(), failure::Error> {
                         .name("Testtrack")
                         .marker(Marker::Dot)
                         .style(Style::default().fg(Color::Cyan))
-                        .data(&sigapp.data1),
-                    // Dataset::default()
-                    //     .name("data3")
-                    //     .marker(Marker::Braille)
-                    //     .style(Style::default().fg(Color::Yellow))
-                    //     .data(&sigapp.data2),
+                        .data(&diag_app.data1), //use here the data1 saved for the diagram app
                 ])
                 .render(&mut f, chunks[1]);
         })?;
 
+        // when in the main loop we react to key presses and leave upon pressing 'q'
         match events.next()? {
             util::Event::Input(input) => match input {
                 Key::Char('q') => {
                     break;
                 }
                 Key::Down => {
-                    //app.y += 1.0;
+                    //route_app.y += 1.0;
                 }
                 Key::Up => {
-                    //app.y -= 1.0;
+                    //route_app.y -= 1.0;
                 }
                 Key::Right => {
-                    //app.x += 1.0;
+                    //route_app.x += 1.0;
                 }
                 Key::Left => {
-                    //app.x -= 1.0;
+                    //route_app.x -= 1.0;
                 }
 
                 _ => {}
             },
             util::Event::Tick => {
-                app.update();
+                route_app.update();
             }
         }
     }
