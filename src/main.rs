@@ -19,6 +19,7 @@ use std::io::BufReader;
 use std::fs::File;
 use std::env;
 use std::time::Duration;
+use std::error::Error;
 
 use termion::event::Key;
 use termion::input::MouseTerminal;
@@ -53,12 +54,12 @@ struct GPX_Data {
 }
 
 impl GPX_Data {
-    fn new(filename: String) -> GPX_Data {
-        let file = File::open(filename.as_str()).unwrap();
+    fn new(filename: String) -> Result<GPX_Data, Box<Error>> {
+        let file = File::open(filename.as_str())?;
         let reader = BufReader::new(file);
 
         // read takes any io::Read and gives a Result<Gpx, Error>.
-        let gpx: Gpx = read(reader).unwrap();
+        let gpx: Gpx = read(reader)?;
 
         // for first demo use only the first track found
         let track: Track = gpx.tracks[0].clone();
@@ -67,12 +68,12 @@ impl GPX_Data {
         // waypoint contains info like latitude, longitude, and elevation.
         let segment: TrackSegment = track.segments[0].clone();
 
-        GPX_Data {
+        Ok(GPX_Data {
             filename,
             gpx,
             track: track,
             segment: segment,
-        }
+        })
     }
 }
 
@@ -85,8 +86,8 @@ struct DiagramApp {
 }
 
 impl DiagramApp {
-    fn new(filename: String) -> DiagramApp {
-        let mut gpx = GPX_Data::new(filename);
+    fn new(filename: String) -> Result<DiagramApp, Box<Error>> {
+        let mut gpx = GPX_Data::new(filename)?;
 
         gpxalyzer::decorate_speed(&mut gpx.segment);
         let yquant = gpxalyzer::get_speed(&gpx.segment);
@@ -111,12 +112,12 @@ impl DiagramApp {
 
         let last_point = time[time.len()-1].time().signed_duration_since(starttime).num_seconds() as f64;
 
-        DiagramApp {
+        Ok(DiagramApp {
             data1,
             data2,
             y_range: [0.8*y_min, 1.2*y_max],
             window: [0.0, last_point],
-        }
+        })
     }
 
     fn update(&mut self) {
@@ -135,8 +136,8 @@ struct RouteApp {
 }
 
 impl RouteApp {
-    fn new(filename: String) -> RouteApp {
-        let gpx = GPX_Data::new(filename);
+    fn new(filename: String) -> Result<RouteApp, Box<Error>> {
+        let gpx = GPX_Data::new(filename)?;
         let mut points: std::vec::Vec<Point<f64>> = std::vec::Vec::new();
         for p in &gpx.segment.points {
             points.push(p.point());
@@ -156,7 +157,7 @@ impl RouteApp {
         y_range[0] -= y_dist*margin_factor;
         y_range[1] += y_dist*margin_factor;
 
-        RouteApp {
+        Ok(RouteApp {
             size: Default::default(),
             data: points,
             draw_area: [x_range[0], y_range[0], x_range[1], y_range[1]],
@@ -164,7 +165,7 @@ impl RouteApp {
             mv_left: 0,      // do not store any remaining scroll steps as default
             mv_up_d: 0.01,    // default: 10% movement in y-axis direction of visible region
             mv_left_d: 0.01,  // default: 10% movement in x-axis direction of visible region
-        }
+        })
     }
 
     fn scroll_up(&mut self) {
@@ -231,14 +232,14 @@ fn main() {
     ::std::process::exit(match run_prog(filename.to_string()) {
         Ok(_) => 0,
         Err(err) => {
-            error!("error: {:?}", err);
+            error!("Error while executing fitr. Error message: {:}", err);
             1
         }
     });
 }
 
 
-fn run_prog(filename: String) -> Result<(), failure::Error> {
+fn run_prog(filename: String) -> Result<(), Box<Error>> {
     // Terminal initialization
     let stdout = std::io::stdout().into_raw_mode()?;
     let stdout = MouseTerminal::from(stdout);
@@ -255,9 +256,9 @@ fn run_prog(filename: String) -> Result<(), failure::Error> {
     let events = util::Events::with_config(config);
 
     // 2D route app (scrollable and hence mutable)
-    let mut route_app = RouteApp::new(filename.to_string());
+    let mut route_app = RouteApp::new(filename.to_string())?;
     // diagram app of variable to show along time
-    let diag_app = DiagramApp::new(filename.to_string());
+    let diag_app = DiagramApp::new(filename.to_string())?;
 
     // main loop for showing TUI
     loop {
