@@ -128,6 +128,10 @@ struct RouteApp {
     size: Rect,
     data: std::vec::Vec<Point<f64>>,
     draw_area: [f64; 4],
+    mv_up: i64,
+    mv_left: i64,
+    mv_up_d: f64,
+    mv_left_d: f64,
 }
 
 impl RouteApp {
@@ -156,11 +160,48 @@ impl RouteApp {
             size: Default::default(),
             data: points,
             draw_area: [x_range[0], y_range[0], x_range[1], y_range[1]],
+            mv_up: 0,        // do not store any remaining scroll steps as default
+            mv_left: 0,      // do not store any remaining scroll steps as default
+            mv_up_d: 0.01,    // default: 10% movement in y-axis direction of visible region
+            mv_left_d: 0.01,  // default: 10% movement in x-axis direction of visible region
         }
     }
 
+    fn scroll_up(&mut self) {
+        self.mv_up -= 1;
+    }
+    fn scroll_down(&mut self) {
+        self.mv_up += 1;
+    }
+    fn scroll_left(&mut self) {
+        self.mv_left += 1;
+    }
+    fn scroll_right(&mut self) {
+        self.mv_left -= 1;
+    }
+
     fn update(&mut self) {
-        // leave this in for later scroling and updating
+        // measure visible distance along y-axis
+        let y_visible_d = self.draw_area[3]-self.draw_area[1];
+
+        // adjust top and bottom limit uniformly by scrolled steps and
+        // defined distance increase
+        self.draw_area[3] += y_visible_d*self.mv_up_d*self.mv_up as f64;
+        self.draw_area[1] += y_visible_d*self.mv_up_d*self.mv_up as f64;
+
+        // reset up/down movement counter
+        self.mv_up = 0;
+
+        // measure visible distance along y-axis
+        let x_visible_d = self.draw_area[2]-self.draw_area[0];
+
+        // adjust top and bottom limit uniformly by scrolled steps and
+        // defined distance increase
+        self.draw_area[2] += y_visible_d*self.mv_left_d*self.mv_left as f64;
+        self.draw_area[0] += y_visible_d*self.mv_left_d*self.mv_left as f64;
+
+        // reset up/down movement counter
+        self.mv_left = 0;
     }
 }
 
@@ -303,16 +344,16 @@ fn run_prog(filename: String) -> Result<(), failure::Error> {
                     break;
                 }
                 Key::Down => {
-                    //route_app.y += 1.0;
+                    route_app.scroll_down();
                 }
                 Key::Up => {
-                    //route_app.y -= 1.0;
+                    route_app.scroll_up();
                 }
                 Key::Right => {
-                    //route_app.x += 1.0;
+                    route_app.scroll_right();
                 }
                 Key::Left => {
-                    //route_app.x -= 1.0;
+                    route_app.scroll_left();
                 }
 
                 _ => {}
