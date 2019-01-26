@@ -263,8 +263,8 @@ fn main() {
 fn run_prog(filename: String) -> Result<(), Box<Error>> {
     // Terminal initialization
     let stdout = std::io::stdout().into_raw_mode()?;
-    let stdout = MouseTerminal::from(stdout);
-    let stdout = AlternateScreen::from(stdout);
+    // let stdout = MouseTerminal::from(stdout);
+    // let stdout = AlternateScreen::from(stdout);
     let backend = TermionBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
     terminal.hide_cursor()?;
