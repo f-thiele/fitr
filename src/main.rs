@@ -34,6 +34,8 @@ use tui::Terminal;
 
 use itertools::izip;
 
+use getopts::Options;
+
 use gpx::read;
 use gpx::{Gpx, Track, TrackSegment};
 use geo_types::Point;
@@ -206,6 +208,10 @@ impl RouteApp {
     }
 }
 
+fn print_usage(program: &str, opts: Options) {
+    println!("{}", opts.usage(&format!("Usage: {} <gpx-data-path>", program)));
+}
+
 fn main() {
     // log to terminal and file
     CombinedLogger::init(
@@ -218,14 +224,29 @@ fn main() {
     // obtain arguments for running the program
     let args: Vec<String> = env::args().collect();
 
-    // the first (and only) argument is the GPX file to load, check if
-    // we received an argument
-    if args.len() <= 1 {
-        error!("No filename provided please specify .gpx file to load");
-        std::process::exit(1);
+    let program = &args[0];
+
+    let mut opts = Options::new();
+    opts.optflag("h", "help", "Show this usage message.");
+
+    let matches = match opts.parse(&args[1..]) {
+        Ok(m)  => { m }
+        Err(e) => { panic!(e.to_string()) }
+    };
+
+    if matches.opt_present("h") {
+        print_usage(&program, opts);
+        return;
     }
 
-    let filename = &args[1];
+    let filename = if !matches.free.is_empty() {
+        // if we have any matches left for we use the first one for the filename
+        &matches.free[0]
+    } else {
+        // otherwise show help information
+        print_usage(&program, opts);
+        std::process::exit(1);
+    };
 
     // return standard POSIX exit codes depending on how the run_prog routine
     // terminates
